@@ -15,6 +15,10 @@ import edu.fscj.cen3024c.taskmanager.repositories.UserRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.SecureRandom;
+import java.util.Base64;
 import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -56,17 +60,35 @@ public class UserService {
 
     @Transactional
     public UserDTO createUser(CreateUserRequestDTO request) {
-        User user = new User(request.getUsername(), request.getPassword());
+        String salt = generateSalt();
+        String hash;
+        try {
+            hash = hashPassword(request.getPassword(), salt);
+        } catch (Exception e) {
+            throw new RuntimeException("Error hashing password", e);
+        }
+        User user = new User();
+        user.setUsername(request.getUsername());
+        // NEW FIELDS ON ENTITY (you must add these in User.java)
+        user.setSalt(salt);
+        user.setPasswordHash(hash);
         User savedUser = userRepository.save(user);
         return convertToDTO(savedUser);
     }
-
     @Transactional
     public UserDTO updateUser(Integer id, UpdateUserRequestDTO request) {
         User existingUser = findByIdEntity(id);
         existingUser.setUsername(request.getUsername());
-        existingUser.setPassword(request.getPassword()); // will be hashed in a later module
-
+        // Always re-hash since password is required
+        String salt = generateSalt();
+        String hash;
+        try {
+            hash = hashPassword(request.getPassword(), salt);
+        } catch (Exception e) {
+            throw new RuntimeException("Error hashing password", e);
+        }
+        existingUser.setSalt(salt);
+        existingUser.setPasswordHash(hash);
         User updatedUser = userRepository.save(existingUser);
         return convertToDTO(updatedUser);
     }
@@ -76,6 +98,23 @@ public class UserService {
             throw new UserNotFoundException(id);
         }
         userRepository.deleteById(id);
+    }
+    private String generateSalt() {
+        byte[] salt = new byte[16];
+        new SecureRandom().nextBytes(salt);
+        return Base64.getEncoder().encodeToString(salt);
+    }
+
+    private String hashPassword(String password, String salt) throws Exception {
+        MessageDigest digest = MessageDigest.getInstance("SHA-256");
+
+        String saltedPassword = salt + password;
+
+        byte[] hash = digest.digest(
+                saltedPassword.getBytes(StandardCharsets.UTF_8)
+        );
+
+        return Base64.getEncoder().encodeToString(hash);
     }
 
     // ===== Entity to DTO Conversion =====
